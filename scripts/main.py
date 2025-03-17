@@ -80,3 +80,52 @@ test_datagen = test_gen.flow_from_directory(directory = dataset_path + '/test',
 print("Clases de entrenamiento:", train_datagen.class_indices)
 print("Clases de validación:", val_datagen.class_indices)
 print("Clases de prueba:", test_datagen.class_indices)
+
+# Initialising pretrained model and passing the imagenet weights
+pretrained_model = tf.keras.applications.EfficientNetB0(weights='imagenet',
+                                                        include_top=False,
+                                                        input_shape=(224, 224, 3),
+                                                        pooling = 'max')
+
+# Freeze pre trained layers
+pretrained_model.trainable = False
+
+# Prediction layers
+x = pretrained_model.output
+x = Dense(1024, activation='relu', kernel_regularizer=l2(0.01))(x)  # Capa fully connected con regularización
+x = Dropout(0.5)(x)  # Dropout para evitar sobreajuste
+predictions = Dense(3, activation='softmax')(x)
+
+# Defining new model's input and output layers
+model = Model(inputs=pretrained_model.input, outputs=predictions)
+
+# We use the SGD optimiser, with a very low learning rate, and loss function which is specific to two class classification
+model.compile(optimizer=tf.keras.optimizers.Adam(1e-3),
+              loss="categorical_crossentropy",
+              metrics=["accuracy"])
+
+# You can directly save the model into your Google drive by changing the below path
+model_filepath = '/content/drive/MyDrive/models/best_model.keras'
+
+
+# ModelCheckpoint callback will save models weight if the training accuracy of the model has increased from the previous epoch
+model_save = tf.keras.callbacks.ModelCheckpoint(model_filepath,
+                                                monitor = "val_accuracy",
+                                                verbose = 1,
+                                                save_best_only = True,
+                                                save_weights_only = False,
+                                                mode = "max",
+                                                save_freq = "epoch")
+early_stopping = EarlyStopping(monitor='val_accuracy', patience=5, restore_best_weights=True)
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.2, patience=3, min_lr=1e-6)
+
+callbacks = [model_save, early_stopping, reduce_lr]
+
+history = model.fit(train_datagen,
+                    epochs = 20,
+                    steps_per_epoch = (len(train_datagen)),
+                    validation_data = val_datagen,
+                    # validation_steps = (len(val_datagen)),
+                    shuffle = False,
+                    callbacks = callbacks)
+
